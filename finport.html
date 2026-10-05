@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finport</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .section-card { display: none; }
+        .section-card.active { display: block; }
+    </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    <div class="container">
+        <a class="navbar-brand" href="#">FinPort</a>
+        <div class="navbar-nav">
+            <a class="nav-link" href="#" onclick="showSection('dashboard')">Dashboard</a>
+            <a class="nav-link" href="#" onclick="showSection('input-transaksi')">Catat Transaksi</a>
+            <a class="nav-link" href="#" onclick="showSection('input-kas')">Kelola Kas</a>
+            <a class="nav-link" href="#" onclick="showSection('lihat-transaksi')">Data Transaksi</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+
+    <!-- DASHBOARD SECTION -->
+    <div id="dashboard" class="section-card active">
+        <h3>Dashboard Keuangan</h3>
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <select id="filterTahunChart" class="form-select" onchange="loadDashboard()">
+                    <option value="2023">2023</option>
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026" selected>2026</option>
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-primary" onclick="loadDashboard()">Refresh Data</button>
+            </div>
+        </div>
+        <div class="card p-3 shadow-sm">
+            <canvas id="financeChart" width="400" height="150"></canvas>
+        </div>
+    </div>
+
+    <!-- INPUT TRANSAKSI SECTION -->
+    <div id="input-transaksi" class="section-card">
+        <h3>Catat Transaksi Baru</h3>
+        <div class="card p-4 shadow-sm">
+            <form id="formTransaksi" onsubmit="submitTransaksi(event)">
+                <div class="mb-3">
+                    <label>Tanggal Transaksi</label>
+                    <input type="date" id="tgl_transaksi" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label>Jenis Transaksi</label>
+                    <select id="jenis_transaksi" class="form-select" required>
+                        <option value="Pemasukan">Pemasukan</option>
+                        <option value="Pengeluaran">Pengeluaran</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label>Nominal (Rp)</label>
+                    <input type="number" id="nominal_transaksi" class="form-control" required>
+                </div>
+                <div class="mb-3">
+                    <label>Pilih Kas</label>
+                    <select id="pilih_kas" class="form-select" required>
+                        <!-- Opsi Kas akan dimuat dari JS -->
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-success" id="btnSubmitTrx">Simpan Transaksi</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- INPUT KAS SECTION -->
+    <div id="input-kas" class="section-card">
+        <h3>Tambah Jenis Kas (Rekening/Dompet)</h3>
+        <div class="card p-4 shadow-sm">
+            <form id="formKas" onsubmit="submitKas(event)">
+                <div class="mb-3">
+                    <label>Nama Kas (Contoh: BCA, Cash, Seabank)</label>
+                    <input type="text" id="nama_kas" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-success" id="btnSubmitKas">Simpan Kas</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- LIHAT TRANSAKSI SECTION -->
+    <div id="lihat-transaksi" class="section-card">
+        <h3>Riwayat Transaksi</h3>
+        <div class="row mb-3">
+            <div class="col-md-3">
+                <label>Mulai Tanggal</label>
+                <input type="date" id="filterMulai" class="form-control">
+            </div>
+            <div class="col-md-3">
+                <label>Sampai Tanggal</label>
+                <input type="date" id="filterSampai" class="form-control">
+            </div>
+            <div class="col-md-3 d-flex align-items-end">
+                <button class="btn btn-primary" onclick="loadRiwayatTransaksi()">Filter Tampilkan</button>
+            </div>
+        </div>
+        <div class="card p-3 shadow-sm table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Tanggal</th>
+                        <th>Jenis</th>
+                        <th>Nominal</th>
+                        <th>Kas/Rekening</th>
+                    </tr>
+                </thead>
+                <tbody id="tabelTransaksiBody">
+                    <!-- Data dari sheet akan masuk ke sini -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // MASUKKAN URL DEPLOYMENT APPS SCRIPT ANDA DI SINI
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyt4ogoCT21GYTOK8fdG9VCpwfBA0wX_GVORUfC1gzUsHQnAhnRPPq4a_1et0dJ_OJowA/exec'; 
+
+    let chartInstance = null;
+    let daftarKas = [];
+
+    // Fungsi Navigasi Menu
+    function showSection(sectionId) {
+        document.querySelectorAll('.section-card').forEach(el => el.classList.remove('active'));
+        document.getElementById(sectionId).classList.add('active');
+        if(sectionId === 'input-transaksi') loadDropdownKas();
+        if(sectionId === 'dashboard') loadDashboard();
+        if(sectionId === 'lihat-transaksi') loadRiwayatTransaksi();
+    }
+
+    // Fungsi Kirim Data Kas Baru
+async function submitKas(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitKas');
+    btn.innerHTML = "Menyimpan...";
+    btn.disabled = true;
+
+    const nama = document.getElementById('nama_kas').value;
+    const url = `${SCRIPT_URL}?action=addKas`;
+    
+    try {
+        await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: `nama_kas=${encodeURIComponent(nama)}`,
+	    redirect: 'follow'
+        });
+
+        alert("Kas berhasil ditambahkan!");
+        document.getElementById('formKas').reset();
+        loadDropdownKas(); // Refresh dropdown
+    } catch (error) {
+        alert("Gagal menyimpan. Cek Inspect Element (F12) -> tab Console untuk detail error.");
+        console.error("Penyebab error:", error);
+    } finally {
+        // Memastikan tombol selalu kembali aktif baik saat sukses maupun gagal
+        btn.innerHTML = "Simpan Kas";
+        btn.disabled = false;
+    }
+}
+
+    // Fungsi Kirim Data Transaksi Baru
+    async function submitTransaksi(e) {
+        e.preventDefault();
+        const btn = document.getElementById('btnSubmitTrx');
+        btn.innerHTML = "Menyimpan...";
+        btn.disabled = true;
+
+        const tanggal = document.getElementById('tgl_transaksi').value;
+        const jenis = document.getElementById('jenis_transaksi').value;
+        const nominal = document.getElementById('nominal_transaksi').value;
+        const id_kas = document.getElementById('pilih_kas').value;
+
+        const url = `${SCRIPT_URL}?action=addTransaksi`;
+        const bodyData = `tanggal=${tanggal}&jenis=${jenis}&nominal=${nominal}&id_kas=${id_kas}`;
+
+        await fetch(url, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+            body: bodyData,
+	    redirect: 'follow'
+        });
+
+        alert("Transaksi berhasil dicatat!");
+        document.getElementById('formTransaksi').reset();
+        btn.innerHTML = "Simpan Transaksi";
+        btn.disabled = false;
+    }
+
+    // Fungsi Load Kas untuk Dropdown
+    async function loadDropdownKas() {
+        const response = await fetch(`${SCRIPT_URL}?action=getKas`);
+        daftarKas = await response.json();
+        
+        const selectBox = document.getElementById('pilih_kas');
+        selectBox.innerHTML = '';
+        daftarKas.forEach(kas => {
+            selectBox.innerHTML += `<option value="${kas.id_kas}">${kas.nama_kas}</option>`;
+        });
+    }
+
+    // Fungsi Cari Nama Kas dari ID
+    function getNamaKas(id) {
+        const kas = daftarKas.find(k => k.id_kas === id);
+        return kas ? kas.nama_kas : id;
+    }
+
+    // Fungsi Load Tabel Transaksi & Filter Tanggal
+    async function loadRiwayatTransaksi() {
+        if(daftarKas.length === 0) await loadDropdownKas(); // Pastikan data kas tersedia
+
+        const tbody = document.getElementById('tabelTransaksiBody');
+        tbody.innerHTML = "<tr><td colspan='4' class='text-center'>Memuat data...</td></tr>";
+
+        const response = await fetch(`${SCRIPT_URL}?action=getTransaksi`);
+        let data = await response.json();
+
+        // Ambil filter tanggal
+        const startDate = document.getElementById('filterMulai').value;
+        const endDate = document.getElementById('filterSampai').value;
+
+        if (startDate && endDate) {
+            data = data.filter(trx => {
+                const tglTrx = trx.tanggal_transaksi.split('T')[0]; // Format normalisasi jika timestamp
+                return tglTrx >= startDate && tglTrx <= endDate;
+            });
+        }
+
+        tbody.innerHTML = '';
+        if(data.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='4' class='text-center'>Tidak ada transaksi.</td></tr>";
+            return;
+        }
+
+        data.forEach(trx => {
+            // Ubah format tanggal (jika dari sheet berformat string ISO)
+            let dateObj = new Date(trx.tanggal_transaksi);
+            let dateStr = isNaN(dateObj) ? trx.tanggal_transaksi : dateObj.toLocaleDateString('id-ID');
+            
+            // Format Rupiah
+            let rp = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(trx.nominal_transaksi);
+            
+            // Warna teks Pemasukan / Pengeluaran
+            let color = trx.jenis_transaksi === 'Pemasukan' ? 'text-success' : 'text-danger';
+
+            tbody.innerHTML += `
+                <tr>
+                    <td>${dateStr}</td>
+                    <td class="fw-bold ${color}">${trx.jenis_transaksi}</td>
+                    <td>${rp}</td>
+                    <td>${getNamaKas(trx.id_kas)}</td>
+                </tr>
+            `;
+        });
+    }
+
+    // Fungsi Load Data untuk Dashboard Chart
+    async function loadDashboard() {
+        const tahun = document.getElementById('filterTahunChart').value;
+        const response = await fetch(`${SCRIPT_URL}?action=getTransaksi`);
+        const data = await response.json();
+
+        // Siapkan array data bulan 1 - 12
+        let pemasukan = [0,0,0,0,0,0,0,0,0,0,0,0];
+        let pengeluaran = [0,0,0,0,0,0,0,0,0,0,0,0];
+
+        data.forEach(trx => {
+            let dateObj = new Date(trx.tanggal_transaksi);
+            if (!isNaN(dateObj) && dateObj.getFullYear() == tahun) {
+                let bulanIndex = dateObj.getMonth(); // 0 (Jan) sampai 11 (Des)
+                if (trx.jenis_transaksi === 'Pemasukan') {
+                    pemasukan[bulanIndex] += Number(trx.nominal_transaksi);
+                } else if (trx.jenis_transaksi === 'Pengeluaran') {
+                    pengeluaran[bulanIndex] += Number(trx.nominal_transaksi);
+                }
+            }
+        });
+
+        renderChart(pemasukan, pengeluaran);
+    }
+
+    // Fungsi Render Chart.js
+    function renderChart(dataPemasukan, dataPengeluaran) {
+        const ctx = document.getElementById('financeChart').getContext('2d');
+        
+        if (chartInstance) {
+            chartInstance.destroy(); // Hapus grafik lama jika difilter ulang
+        }
+
+        chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'],
+                datasets: [
+                    {
+                        label: 'Pemasukan (Rp)',
+                        data: dataPemasukan,
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Pengeluaran (Rp)',
+                        data: dataPengeluaran,
+                        backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    // Load data kas saat pertama kali web dibuka
+    window.onload = () => {
+        loadDropdownKas();
+        loadDashboard();
+    };
+
+</script>
+</body>
+</html>
